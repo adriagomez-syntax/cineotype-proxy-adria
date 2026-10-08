@@ -1,5 +1,6 @@
 export interface Env {
   TMDB_API_KEY: string
+  MY_RATE_LIMITER: RateLimit
 }
 
 const TMDB = "https://api.themoviedb.org/3";
@@ -21,6 +22,13 @@ function getMovieRequest(pathname: string, apiKey: string) {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		// Rate limit
+		const ip = request.headers.get("cf-connecting-ip") ?? "anon"
+		const { success } = await env.MY_RATE_LIMITER.limit({ key: ip })
+		if (!success) {
+			return new Response("Too Many Requests", { status: 429 })
+		}
+		
 		// Allowed access
 		const origin = request.headers.get("Origin") ?? ""
 		if (!ALLOWED.includes(origin))
