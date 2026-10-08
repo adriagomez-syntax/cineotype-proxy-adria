@@ -1,3 +1,4 @@
+import { ResponseErrorClass } from "./assets/ResponseErrorClass";
 import { Movie, SearchResponse } from "./types/movie";
 
 export interface Env {
@@ -11,22 +12,22 @@ const ALLOWED = [
 	"https://cineotype-adria.adria-gomez.workers.dev"
 ]
 
-async function searchRequest(searchParams: URLSearchParams, apiKey: string): Promise<Response> {
+async function searchRequest(searchParams: URLSearchParams, apiKey: string, origin: string): Promise<Response> {
 	const query = searchParams.get("query") ?? ""
 	const page = searchParams.get("page") ?? ""
 	const upstream = `${TMDB}/search/movie?query=${encodeURIComponent(query)}${page && `&page=${page}`}&api_key=${apiKey}`
 
-	return await doRequest<SearchResponse>(upstream)
+	return await doRequest<SearchResponse>(upstream, origin)
 }
 
-async function getMovieRequest(pathname: string, apiKey: string): Promise<Response> {
+async function getMovieRequest(pathname: string, apiKey: string, origin: string): Promise<Response> {
 	const id = pathname.split("/")[2]
 	const upstream = `${TMDB}/movie/${id}?api_key=${apiKey}`
 
-	return await doRequest<Movie>(upstream)
+	return await doRequest<Movie>(upstream, origin)
 }
 
-async function doRequest<T>(upstream: string): Promise<Response> {
+async function doRequest<T>(upstream: string, origin: string): Promise<Response> {
 	
 	let status = 200
 	const apiRes = await fetch(upstream)
@@ -39,7 +40,7 @@ async function doRequest<T>(upstream: string): Promise<Response> {
 	return new Response(JSON.stringify(data), {
 		headers: {
 			"Content-Type": "application/json",
-			"Access-Control-Allow-Origin": "*",
+			"Access-Control-Allow-Origin": origin,
 		},
 		status: status
 	})
@@ -51,14 +52,27 @@ export default {
 		const ip = request.headers.get("cf-connecting-ip") ?? "anon"
 		const { success } = await env.MY_RATE_LIMITER.limit({ key: ip })
 		if (!success) {
-			return new Response("Too Many Requests", { status: 429 })
+			return new Response(JSON.stringify(new ResponseErrorClass(429, "Too Many Requests")), 
+			{
+				headers: {
+					"Content-Type": "application/json",
+					"Access-Control-Allow-Origin": "*"
+				},  
+				status: 429 
+			})
 		}
 		
 		// Allowed access
 		const origin = request.headers.get("Origin") ?? ""
 		if (!ALLOWED.includes(origin))
 		{
-			return new Response("Forbidden", { status: 403 })
+			return new Response(JSON.stringify(new ResponseErrorClass(403, "Forbidden")), {
+				headers: {
+					"Content-Type": "application/json",
+					"Access-Control-Allow-Origin": "*"
+				},  
+				status: 403
+			})
 		}
 
 		// CORS Control
@@ -74,10 +88,16 @@ export default {
 		// Make the request
 		const { pathname, searchParams } = new URL(request.url)
 
-		if (pathname === "/search") { return await searchRequest(searchParams, env.TMDB_API_KEY) } 
-		else if (pathname.startsWith("/movie/")) { return await getMovieRequest(pathname, env.TMDB_API_KEY) }
+		if (pathname === "/search") { return await searchRequest(searchParams, env.TMDB_API_KEY, origin) } 
+		else if (pathname.startsWith("/movie/")) { return await getMovieRequest(pathname, env.TMDB_API_KEY, origin) }
 
 		// Not a valid path
-		return new Response("Not found", { status: 404 });
+		return new Response(JSON.stringify(new ResponseErrorClass(404, "Not found")), {
+			headers: {
+				"Content-Type": "application/json",
+				"Access-Control-Allow-Origin": origin
+			},  
+			status: 404 
+		});
 	},
 } satisfies ExportedHandler<Env>;
