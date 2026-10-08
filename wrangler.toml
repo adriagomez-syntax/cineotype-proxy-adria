@@ -1,4 +1,0 @@
-[[ratelimits]]
-name = "MY_RATE_LIMIT"
-namespace_id = "1234"
-simple = { limit = 10, period = 60 } # 10 times x 60s
