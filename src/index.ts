@@ -1,3 +1,5 @@
+import { Movie, SearchResponse } from "./types/movie";
+
 export interface Env {
   TMDB_API_KEY: string
   MY_RATE_LIMITER: RateLimit
@@ -9,15 +11,38 @@ const ALLOWED = [
 	"https://cineotype-adria.adria-gomez.workers.dev"
 ]
 
-function searchRequest(searchParams: URLSearchParams, apiKey: string) {
+async function searchRequest(searchParams: URLSearchParams, apiKey: string): Promise<Response> {
 	const query = searchParams.get("query") ?? ""
 	const page = searchParams.get("page") ?? ""
-	return `${TMDB}/search/movie?query=${encodeURIComponent(query)}${page && `&page=${page}`}&api_key=${apiKey}`
+	const upstream = `${TMDB}/search/movie?query=${encodeURIComponent(query)}${page && `&page=${page}`}&api_key=${apiKey}`
+
+	return await doRequest<SearchResponse>(upstream)
 }
 
-function getMovieRequest(pathname: string, apiKey: string) {
+async function getMovieRequest(pathname: string, apiKey: string): Promise<Response> {
 	const id = pathname.split("/")[2]
-	return `${TMDB}/movie/${id}?api_key=${apiKey}`
+	const upstream = `${TMDB}/movie/${id}?api_key=${apiKey}`
+
+	return await doRequest<Movie>(upstream)
+}
+
+async function doRequest<T>(upstream: string): Promise<Response> {
+	
+	let status = 200
+	const apiRes = await fetch(upstream)
+	if (!apiRes.ok) {
+		status = apiRes.status
+	}
+	const data: T = await apiRes.json()
+
+	// Return data
+	return new Response(JSON.stringify(data), {
+		headers: {
+			"Content-Type": "application/json",
+			"Access-Control-Allow-Origin": "*",
+		},
+		status: status
+	})
 }
 
 export default {
@@ -49,29 +74,10 @@ export default {
 		// Make the request
 		const { pathname, searchParams } = new URL(request.url)
 
-		let upstream: string
-		if (pathname === "/search") {
-			upstream = searchRequest(searchParams, env.TMDB_API_KEY)
-		} else if (pathname.startsWith("/movie/")) {
-			upstream = getMovieRequest(pathname, env.TMDB_API_KEY)
-		} else {
-			return new Response("Not found", { status: 404 });
-		}
+		if (pathname === "/search") { return await searchRequest(searchParams, env.TMDB_API_KEY) } 
+		else if (pathname.startsWith("/movie/")) { return await getMovieRequest(pathname, env.TMDB_API_KEY) }
 
-		let status = 200
-		const apiRes = await fetch(upstream)
-		if (!apiRes.ok) {
-			status = apiRes.status
-		}
-		const data = await apiRes.json()
-
-		// Return data
-		return new Response(JSON.stringify(data), {
-			headers: {
-				"Content-Type": "application/json",
-				"Access-Control-Allow-Origin": "*",
-			},
-			status: status
-		})
+		// Not a valid path
+		return new Response("Not found", { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;
