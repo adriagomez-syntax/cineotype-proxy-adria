@@ -1,18 +1,69 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+export interface Env {
+  TMDB_API_KEY: string
+}
+
+const TMDB = "https://api.themoviedb.org/3";
+const ALLOWED = [
+	"http://localhost:5173",
+	"https://cineotype-adria.adria-gomez.workers.dev"
+]
+
+function searchRequest(searchParams: URLSearchParams, apiKey: string) {
+	const query = searchParams.get("query") ?? ""
+	const page = searchParams.get("page") ?? ""
+	return `${TMDB}/search/movie?query=${encodeURIComponent(query)}${page && `&page=${page}`}&api_key=${apiKey}`
+}
+
+function getMovieRequest(pathname: string, apiKey: string) {
+	const id = pathname.split("/")[2]
+	return `${TMDB}/movie/${id}?api_key=${apiKey}`
+}
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response("Hello World!");
+	async fetch(request: Request, env: Env): Promise<Response> {
+		// Allowed access
+		const origin = request.headers.get("Origin") ?? ""
+		if (!ALLOWED.includes(origin))
+		{
+			return new Response("Forbidden", { status: 403 })
+		}
+
+		// CORS Control
+		if (request.method === "OPTIONS") {
+			return new Response(null, {
+				headers: {
+					"Access-Control-Allow-Origin": origin,
+					"Access-Control-Allow-Methods": "GET"
+				}
+			})
+		}
+
+		// Make the request
+		const { pathname, searchParams } = new URL(request.url)
+
+		let upstream: string
+		if (pathname === "/search") {
+			upstream = searchRequest(searchParams, env.TMDB_API_KEY)
+		} else if (pathname.startsWith("/movie/")) {
+			upstream = getMovieRequest(pathname, env.TMDB_API_KEY)
+		} else {
+			return new Response("Not found", { status: 404 });
+		}
+
+		let status = 200
+		const apiRes = await fetch(upstream)
+		if (!apiRes.ok) {
+			status = apiRes.status
+		}
+		const data = await apiRes.json()
+
+		// Return data
+		return new Response(JSON.stringify(data), {
+			headers: {
+				"Content-Type": "application/json",
+				"Access-Control-Allow-Origin": "*",
+			},
+			status: status
+		})
 	},
 } satisfies ExportedHandler<Env>;
